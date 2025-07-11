@@ -277,6 +277,19 @@ func readVertexWorkerWithMetrics(ctx context.Context, client *spanner.Client, wo
 	var stopTimer *time.Timer
 	var done bool = false
 
+	// Calculate queries per worker for count-based tests
+	var queriesPerWorker int
+	var executedQueries int
+
+	if !isDurationBased {
+		queriesPerWorker = totalQueries / VUS
+		// Handle remainder by giving extra queries to the first few workers
+		if workerID < totalQueries%VUS {
+			queriesPerWorker++
+		}
+		log.Printf("Worker %d will execute %d queries", workerID, queriesPerWorker)
+	}
+
 	if isDurationBased {
 		stopTimer = time.NewTimer(time.Duration(TEST_DURATION_SEC) * time.Second)
 		defer func() {
@@ -306,6 +319,13 @@ func readVertexWorkerWithMetrics(ctx context.Context, client *spanner.Client, wo
 			log.Printf("Vertex Read Worker %d stopping due to context cancellation", workerID)
 			return ctx.Err()
 		default:
+		}
+
+		// Check if we've reached the query limit for count-based tests
+		if !isDurationBased && executedQueries >= queriesPerWorker {
+			log.Printf("Worker %d completed %d queries", workerID, executedQueries)
+			done = true
+			break
 		}
 
 		var ro *spanner.ReadOnlyTransaction
@@ -358,6 +378,9 @@ func readVertexWorkerWithMetrics(ctx context.Context, client *spanner.Client, wo
 
 		atomic.AddUint64(&currentTPS, 1)
 		metricsCollector.AddDuration(workerID, queryDuration)
+
+		// Increment executed queries counter
+		executedQueries++
 
 		if success {
 			workerSuccessCount++
