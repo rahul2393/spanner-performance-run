@@ -17,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/jaeger"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -145,19 +144,10 @@ func initOpenTelemetryTracer() func() {
 	tp := trace.NewTracerProvider(
 		trace.WithBatcher(exporter),
 		trace.WithSampler(trace.AlwaysSample()),
-		//trace.WithSampler(trace.NeverSample()),
-		//trace.WithSampler(trace.TraceIDRatioBased(0.001)), // Sample all traces for debugging
 	)
 
 	// Set the global trace provider
 	otel.SetTracerProvider(tp)
-
-	// Set global propagator for context propagation (this is key for internal spans!)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
-
 	log.Printf("OpenTelemetry tracer configured with Jaeger exporter at http://localhost:14268/api/traces")
 	log.Printf("All Spanner client internal tracing will be automatically exported")
 
@@ -268,6 +258,7 @@ func spannerReadUserTest(client *spanner.Client, dbPath string) {
 	log.Printf("  Failed queries: (metrics: %d)", metricsErrors)
 
 	log.Printf("  Latency metrics: %s", combinedMetrics.String())
+	spanner.PrintQueryTimingPercentiles()
 }
 
 // readVertexWorkerWithMetrics is a worker function for reading vertices with detailed metrics collection
@@ -443,7 +434,7 @@ func main() {
 			log.Fatalf("Spanner client required for test type: %s", testType)
 		}
 	}
-
+	spanner.EnableQueryTimingMetrics()
 	switch testType {
 	case "read-user":
 		log.Println("Running read user...")
